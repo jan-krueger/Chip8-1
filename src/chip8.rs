@@ -87,7 +87,7 @@ impl Chip8 {
 
     pub fn load_rom(&mut self)
     {
-        let mut file = File::open("airplane.ch8").expect("Failed to open file.");
+        let mut file = File::open("roms/chip8.ch8").expect("Failed to open file.");
         let mut buffer : [u8;3584] = [0;3584];
         let length = file.read(&mut buffer).expect("Failed to read to buffer.");
 
