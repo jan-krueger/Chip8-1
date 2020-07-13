@@ -5,7 +5,8 @@ use rand::prelude::*;
 
 const OPCODE_SIZE: usize = 2;
 
-pub(crate) struct Chip8 {
+#[derive(Copy,Clone)]
+pub struct Chip8 {
     registers   : [u8;16],
     memory      : [u8;4096],
     index       : usize,
@@ -14,11 +15,13 @@ pub(crate) struct Chip8 {
     sp          : usize,
     delay_timer : u8,
     sound_timer : u8,
-    video       : [[u8; 64]; 32],
+    pub video       : [[u8; 64]; 32],
 
     keypad      : [bool;16],
     keypad_reg  : u8,
     keypad_waiting: bool,
+
+    pub test_flag: bool,
 }
 
 pub struct Result {
@@ -65,6 +68,9 @@ impl Chip8 {
             keypad: [false; 16],
             keypad_reg: 0,
             keypad_waiting: false,
+
+            test_flag: false,
+
         };
         for i in 0..Chip8::FONT.len() {
             c.memory[i] = Chip8::FONT[i];
@@ -87,15 +93,15 @@ impl Chip8 {
 
     pub fn load_rom(&mut self)
     {
-        let mut file = File::open("roms/chip8.ch8").expect("Failed to open file.");
-        let mut buffer : [u8;3584] = [0;3584];
+        let mut file = File::open("roms/test.ch8").expect("Failed to open file.");
+        let mut buffer : [u8;3584 + 1] = [0;3584 + 1];
         let length = file.read(&mut buffer).expect("Failed to read to buffer.");
 
         if length > 3584 {
-            panic!("The ROM is too big!");
+            panic!("The ROM is too big. (|rom| > 3584 bytes)");
         }
 
-        self.memory[Chip8::START_ADDRESS..].copy_from_slice(&buffer);
+        self.memory[Chip8::START_ADDRESS..].copy_from_slice(&buffer[..3584]);
     }
 
     pub fn fetch_instruction(&self) -> u16
@@ -363,7 +369,6 @@ impl Chip8 {
             },
             _ => {
                 panic!("Unimplemented opcode {:#X}", opcode);
-                NEXT
             }
         };
 
