@@ -5,8 +5,7 @@ use rand::prelude::*;
 
 const OPCODE_SIZE: usize = 2;
 
-#[derive(Copy,Clone)]
-pub struct Chip8 {
+pub(crate) struct Chip8 {
     registers   : [u8;16],
     memory      : [u8;4096],
     index       : usize,
@@ -15,13 +14,11 @@ pub struct Chip8 {
     sp          : usize,
     delay_timer : u8,
     sound_timer : u8,
-    pub video       : [[u8; 64]; 32],
+    video       : [[u8; 64]; 32],
 
     keypad      : [bool;16],
     keypad_reg  : u8,
     keypad_waiting: bool,
-
-    pub test_flag: bool,
 }
 
 pub struct Result {
@@ -68,9 +65,6 @@ impl Chip8 {
             keypad: [false; 16],
             keypad_reg: 0,
             keypad_waiting: false,
-
-            test_flag: false,
-
         };
         for i in 0..Chip8::FONT.len() {
             c.memory[i] = Chip8::FONT[i];
@@ -93,15 +87,15 @@ impl Chip8 {
 
     pub fn load_rom(&mut self)
     {
-        let mut file = File::open("roms/test.ch8").expect("Failed to open file.");
-        let mut buffer : [u8;3584 + 1] = [0;3584 + 1];
+        let mut file = File::open("roms/pong.ch8").expect("Failed to open file.");
+        let mut buffer : [u8;3584] = [0;3584];
         let length = file.read(&mut buffer).expect("Failed to read to buffer.");
 
         if length > 3584 {
-            panic!("The ROM is too big. (|rom| > 3584 bytes)");
+            panic!("The ROM is too big!");
         }
 
-        self.memory[Chip8::START_ADDRESS..].copy_from_slice(&buffer[..3584]);
+        self.memory[Chip8::START_ADDRESS..].copy_from_slice(&buffer);
     }
 
     pub fn fetch_instruction(&self) -> u16
@@ -173,7 +167,7 @@ impl Chip8 {
             },
             // Jumps to address NNN.
             (0x1, _, _, _) => {
-                Chip8::log(format!(" -> jump"));
+                Chip8::log(format!(" -> jump from {:#X} to {:#X}", self.pc, addr));
                 JUMP(addr)
             },
             // Calls subroutine at NNN.
@@ -185,53 +179,53 @@ impl Chip8 {
             },
             // Skips the next instruction if VX equals NN.
             (0x3, _, _, _) => {
-                Chip8::log(format!(" -> skip (Vx == constant)"));
+                Chip8::log(format!(" -> skip (V[{:#X}] == constant)", x));
                 ProgramCounter::skip(self.registers[x] == kk)
             },
             // Skips the next instruction if VX doesn't equal NN.
             (0x4, _, _, _) => {
-                Chip8::log(format!(" -> skip (Vx != constant)"));
+                Chip8::log(format!(" -> skip (V[{:#X}] != constant)", x));
                 ProgramCounter::skip(self.registers[x] != kk)
 
             },
             (0x5, _, _, 0x0) => {
-                Chip8::log(format!(" -> skip (Vx == Vy)"));
+                Chip8::log(format!(" -> skip (V[{:#X}] == V[{:#X}])", x, y));
                 ProgramCounter::skip(self.registers[x] == self.registers[y] )
             } // Skips the next instruction if VX equals VY.
             (0x6, _, _, _) => {
-                Chip8::log(format!(" -> Vx = constant"));
+                Chip8::log(format!(" -> V[{:#X}] = constant", x));
                 self.registers[x] = kk;
                 ProgramCounter::NEXT
             },
             (0x7, _, _, _) => {
-                Chip8::log(format!(" -> Vx += constant"));
+                Chip8::log(format!(" -> V[{:#X}] += constant", x));
                 let a = self.registers[x] as u16;
                 let b = kk as u16;
                 self.registers[x] = (a + b) as u8;
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x0) => {
-                Chip8::log(format!(" -> Vx = Vy"));
+                Chip8::log(format!(" -> V[{:#X}] = V[{:#X}]", x, y));
                 self.registers[x] = self.registers[y];
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x1) => {
-                Chip8::log(format!(" -> Vx |= Vy"));
+                Chip8::log(format!(" -> V[{:#X}] |= V[{:#X}]", x, y));
                 self.registers[x] |= self.registers[y];
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x2) => {
-                Chip8::log(format!(" -> Vx &= Vy"));
+                Chip8::log(format!(" -> V[{:#X}] &= V[{:#X}]", x, y));
                 self.registers[x] &= self.registers[y];
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x3) => {
-                print!(" -> Vx ^= Vy");
+                print!(" -> V[{:#X}] ^= V[{:#X}]", x, y);
                 self.registers[x] ^= self.registers[y];
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x4) => {
-                Chip8::log(format!(" -> Vx + Vy"));
+                Chip8::log(format!(" -> {:#X} = V[{:#X}] + V[{:#X}]", x, x, y));
                 let r = (self.registers[x] as u16) + (self.registers[y] as u16);
                 self.registers[x] = r as u8;
                 // set carry bit
@@ -243,7 +237,7 @@ impl Chip8 {
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x5) => {
-
+                Chip8::log(format!(" -> {:#X} = V[{:#X}] - V[{:#X}]", x, x, y));
                 if self.registers[x] > self.registers[y] {
                     self.registers[0xF] = 1;
                 } else {
@@ -253,11 +247,13 @@ impl Chip8 {
                 ProgramCounter::NEXT
             },
             (0x8, _, 0, 0x6) => {
+                Chip8::log(format!(" -> V[{:#X}] = (V[{:#X}] & 0x1) >>= 1", x, x));
                 self.registers[0xF] = self.registers[x] & 0x1;
                 self.registers[x] >>= 1;
                 ProgramCounter::NEXT
             },
             (0x8, _, _, 0x7) => {
+                Chip8::log(format!(" -> V[{:#X}] = V[{:#X}] - V[{:#X}]", x, y, x));
                 if self.registers[y] > self.registers[x] {
                     self.registers[0xF] = 1;
                 } else {
@@ -276,7 +272,7 @@ impl Chip8 {
                 ProgramCounter::skip(self.registers[x] != self.registers[y])
             }
             (0xA, _, _, _) => {
-                Chip8::log(format!(" -> set I = addr"));
+                Chip8::log(format!(" -> set I = {:#X}", addr));
                 self.index = addr as usize;
                 ProgramCounter::NEXT
             },
@@ -316,7 +312,7 @@ impl Chip8 {
                 ProgramCounter::skip(!keys_pressed[self.registers[x] as usize])
             },
             (0xF, _, 0x0, 0x7) => {
-                Chip8::log(format!(" -> Vx = delay_timer"));
+                Chip8::log(format!(" -> V[{:#X}] = delay_timer", x));
                 self.registers[x] = self.delay_timer;
                 NEXT
             }
@@ -331,12 +327,12 @@ impl Chip8 {
                 NEXT
             },
             (0xF, _, 0x1, 0x8) => {
-                Chip8::log(format!(" -> sound_timer = Vx"));
+                Chip8::log(format!(" -> sound_timer = V[{:#X}]", x));
                 self.sound_timer = self.registers[x];
                 NEXT
             },
             (0xF, _, 0x1, 0xE) => {
-                Chip8::log(format!(" -> index + Vx"));
+                Chip8::log(format!(" -> I = I + V[{:#X}]", x));
                 self.index += self.registers[x] as usize;
                 if self.index > 0x0F00 {
                     self.registers[0xF] = 1;
@@ -346,16 +342,19 @@ impl Chip8 {
                 NEXT
             },
             (0xF, _, 0x2, 0x9) => {
+                Chip8::log(format!(" -> I = V[{:#X}] * 5 (draw symbol)", x));
                 self.index = (self.registers[x] as usize) * 5;
                 NEXT
             },
             (0xF, _, 0x5, 0x5) => {
+                Chip8::log(format!(" -> memory[I..I+{:#X}] = V[0..{:#X}]", x+1, x+1));
                 for i in 0..x + 1 {
                     self.memory[self.index + i] = self.registers[i];
                 }
                 NEXT
             },
             (0xF, _, 0x6, 0x5) => {
+                Chip8::log(format!(" -> V[0..{:#X}] = memory[I..I+{:#X}]", x+1, x+1));
                 for i in 0..x + 1 {
                     self.registers[i] = self.memory[self.index + i];
                 }
@@ -369,6 +368,7 @@ impl Chip8 {
             },
             _ => {
                 panic!("Unimplemented opcode {:#X}", opcode);
+                NEXT
             }
         };
 
